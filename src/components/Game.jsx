@@ -96,7 +96,7 @@ const HUD = ({ health }) => {
   );
 };
 
-const Game = () => {
+const GameScene = () => {
   const [playerPosition, setPlayerPosition] = useState([0, 0, 10]);
   const [health, setHealth] = useState(100);
   const [bullets, setBullets] = useState([]);
@@ -106,27 +106,32 @@ const Game = () => {
     { id: 3, position: [0, 0, -10] },
   ]);
 
-  const handleKeyDown = (event) => {
-    const speed = 0.5;
-    const newPosition = [...playerPosition];
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      const speed = 0.5;
+      const newPosition = [...playerPosition];
 
-    switch (event.key) {
-      case 'w':
-        newPosition[2] -= speed;
-        break;
-      case 's':
-        newPosition[2] += speed;
-        break;
-      case 'a':
-        newPosition[0] -= speed;
-        break;
-      case 'd':
-        newPosition[0] += speed;
-        break;
-    }
+      switch (event.key) {
+        case 'w':
+          newPosition[2] -= speed;
+          break;
+        case 's':
+          newPosition[2] += speed;
+          break;
+        case 'a':
+          newPosition[0] -= speed;
+          break;
+        case 'd':
+          newPosition[0] += speed;
+          break;
+      }
 
-    setPlayerPosition(newPosition);
-  };
+      setPlayerPosition(newPosition);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [playerPosition]);
 
   const handleShoot = () => {
     const direction = new Vector3(0, 0, -1);
@@ -155,24 +160,32 @@ const Game = () => {
   });
 
   return (
-    <div className="w-full h-screen" tabIndex={0} onKeyDown={handleKeyDown}>
+    <>
+      <ambientLight intensity={0.5} />
+      <pointLight position={[10, 10, 10]} />
+      <PerspectiveCamera makeDefault position={[0, 2, 10]} />
+      <Player position={playerPosition} health={health} onShoot={handleShoot} />
+      <Floor />
+      {enemies.map((enemy) => (
+        <Enemy key={enemy.id} position={enemy.position} onHit={handlePlayerHit} />
+      ))}
+      {bullets.map((bullet, index) => (
+        <Bullet key={index} position={bullet.position} direction={bullet.direction} />
+      ))}
+      <Obstacle position={[5, 1, 0]} />
+      <Obstacle position={[-5, 1, -5]} />
+      <Obstacle position={[0, 1, -10]} />
+      <HUD health={health} />
+      <OrbitControls />
+    </>
+  );
+};
+
+const Game = () => {
+  return (
+    <div className="w-full h-screen">
       <Canvas>
-        <ambientLight intensity={0.5} />
-        <pointLight position={[10, 10, 10]} />
-        <PerspectiveCamera makeDefault position={[0, 2, 10]} />
-        <Player position={playerPosition} health={health} onShoot={handleShoot} />
-        <Floor />
-        {enemies.map((enemy) => (
-          <Enemy key={enemy.id} position={enemy.position} onHit={handlePlayerHit} />
-        ))}
-        {bullets.map((bullet, index) => (
-          <Bullet key={index} position={bullet.position} direction={bullet.direction} />
-        ))}
-        <Obstacle position={[5, 1, 0]} />
-        <Obstacle position={[-5, 1, -5]} />
-        <Obstacle position={[0, 1, -10]} />
-        <HUD health={health} />
-        <OrbitControls />
+        <GameScene />
       </Canvas>
     </div>
   );
