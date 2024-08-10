@@ -11,7 +11,8 @@ const Index = () => {
         <Game />
       </main>
       <footer className="bg-gray-800 text-white p-4 text-center">
-        <p>Use W, A, S, D keys to move. Click and drag to look around.</p>
+        <p>Use W, A, S, D keys to move. Click and drag to look around. Press SPACE to shoot.</p>
+        <p>Avoid the green enemies. Your health is displayed in the top-left corner.</p>
       </footer>
     </div>
   );
