@@ -4,8 +4,37 @@ import { Box, OrbitControls, PerspectiveCamera, Text, useTexture } from '@react-
 import { Vector3, Raycaster } from 'three';
 
 const WEAPONS = {
-  PISTOL: { name: 'Pistol', damage: 10, ammo: 50, fireRate: 5 },
-  SHOTGUN: { name: 'Shotgun', damage: 25, ammo: 20, fireRate: 2 },
+  PISTOL: { name: 'Pistol', damage: 10, maxAmmo: 50, fireRate: 5 },
+  SHOTGUN: { name: 'Shotgun', damage: 25, maxAmmo: 20, fireRate: 2 },
+};
+
+const useWeaponSystem = () => {
+  const [currentWeapon, setCurrentWeapon] = useState(WEAPONS.PISTOL);
+  const [ammo, setAmmo] = useState({ PISTOL: WEAPONS.PISTOL.maxAmmo, SHOTGUN: WEAPONS.SHOTGUN.maxAmmo });
+  const [lastFireTime, setLastFireTime] = useState(0);
+
+  const switchWeapon = (weapon) => {
+    setCurrentWeapon(weapon);
+  };
+
+  const fire = () => {
+    const now = Date.now();
+    if (now - lastFireTime < 1000 / currentWeapon.fireRate) return false;
+    if (ammo[currentWeapon.name] <= 0) return false;
+
+    setAmmo(prev => ({ ...prev, [currentWeapon.name]: prev[currentWeapon.name] - 1 }));
+    setLastFireTime(now);
+    return true;
+  };
+
+  const addAmmo = (weaponName, amount) => {
+    setAmmo(prev => ({
+      ...prev,
+      [weaponName]: Math.min(prev[weaponName] + amount, WEAPONS[weaponName].maxAmmo)
+    }));
+  };
+
+  return { currentWeapon, ammo, switchWeapon, fire, addAmmo };
 };
 
 const POWERUPS = {
@@ -41,14 +70,29 @@ const Player = ({ position, health, weapon, onShoot }) => {
   );
 };
 
-const Enemy = ({ position, onHit, onDie, playerPosition }) => {
+const Enemy = ({ position, onHit, onDie, playerPosition, obstacles }) => {
   const ref = useRef();
   const [health, setHealth] = useState(100);
 
   useFrame(() => {
     if (ref.current) {
       const direction = new Vector3(...playerPosition).sub(ref.current.position).normalize();
-      ref.current.position.add(direction.multiplyScalar(0.03));
+      const newPosition = ref.current.position.clone().add(direction.multiplyScalar(0.03));
+      
+      // Check for collisions with obstacles
+      let collision = false;
+      for (const obstacle of obstacles) {
+        const obstacleVector = new Vector3(...obstacle.position);
+        const distance = newPosition.distanceTo(obstacleVector);
+        if (distance < 2) {
+          collision = true;
+          break;
+        }
+      }
+      
+      if (!collision) {
+        ref.current.position.copy(newPosition);
+      }
       
       if (Math.random() < 0.005) {
         onHit();
@@ -94,19 +138,52 @@ const Bullet = ({ position, direction, onHit }) => {
   );
 };
 
+const useBulletSystem = (camera) => {
+  const [bullets, setBullets] = useState([]);
+
+  const fireBullet = () => {
+    const bulletDirection = new Vector3();
+    camera.getWorldDirection(bulletDirection);
+    const bulletPosition = camera.position.clone().add(bulletDirection.multiplyScalar(1));
+    setBullets(prev => [...prev, { position: bulletPosition, direction: bulletDirection }]);
+  };
+
+  const updateBullets = () => {
+    setBullets(prev => prev.filter(bullet => bullet.position.length() <= 50));
+  };
+
+  return { bullets, fireBullet, updateBullets };
+};
+
 const Powerup = ({ position, type, onCollect }) => {
   const ref = useRef();
+  const [hovered, setHovered] = useState(false);
 
-  useFrame(() => {
+  useFrame((state) => {
     if (ref.current) {
       ref.current.rotation.y += 0.05;
+      ref.current.position.y = position[1] + Math.sin(state.clock.elapsedTime * 2) * 0.1;
     }
   });
 
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      onCollect();
+    }, 30000); // Despawn after 30 seconds
+
+    return () => clearTimeout(timeout);
+  }, [onCollect]);
+
   return (
-    <mesh ref={ref} position={position} onClick={onCollect}>
+    <mesh
+      ref={ref}
+      position={position}
+      onClick={onCollect}
+      onPointerOver={() => setHovered(true)}
+      onPointerOut={() => setHovered(false)}
+    >
       <boxGeometry args={[0.5, 0.5, 0.5]} />
-      <meshStandardMaterial color={type === POWERUPS.HEALTH ? "red" : "blue"} />
+      <meshStandardMaterial color={type === POWERUPS.HEALTH ? "red" : "blue"} emissive={hovered ? "white" : "black"} emissiveIntensity={0.5} />
     </mesh>
   );
 };
@@ -185,9 +262,6 @@ const Minimap = ({ playerPosition, enemies, obstacles, powerups }) => {
 const GameScene = ({ level, onLevelComplete }) => {
   const [playerPosition, setPlayerPosition] = useState([0, 0, 10]);
   const [health, setHealth] = useState(100);
-  const [weapon, setWeapon] = useState(WEAPONS.PISTOL);
-  const [ammo, setAmmo] = useState(WEAPONS.PISTOL.ammo);
-  const [bullets, setBullets] = useState([]);
   const [enemies, setEnemies] = useState([]);
   const [powerups, setPowerups] = useState([]);
   const [gameOver, setGameOver] = useState(false);
@@ -203,6 +277,13 @@ const GameScene = ({ level, onLevelComplete }) => {
   ], []);
 
   const raycaster = useMemo(() => new Raycaster(), []);
+  const cameraRef = useRef();
+  const { currentWeapon, ammo, switchWeapon, fire, addAmmo } = useWeaponSystem();
+  const { bullets, fireBullet, updateBullets } = useBulletSystem(cameraRef.current);
+
+  useFrame(() => {
+    updateBullets();
+  });
 
   useEffect(() => {
     // Initialize level
@@ -252,14 +333,27 @@ const GameScene = ({ level, onLevelComplete }) => {
           break;
       }
 
-      // Simple collision detection
+      // Improved collision detection
       const playerVector = new Vector3(newPosition[0], newPosition[1], newPosition[2]);
       let collision = false;
 
       for (const obstacle of obstacles) {
-        const obstacleVector = new Vector3(...obstacle.position);
-        const distance = playerVector.distanceTo(obstacleVector);
-        if (distance < 2) {
+        const obstacleMin = new Vector3(
+          obstacle.position[0] - obstacle.size[0] / 2,
+          obstacle.position[1] - obstacle.size[1] / 2,
+          obstacle.position[2] - obstacle.size[2] / 2
+        );
+        const obstacleMax = new Vector3(
+          obstacle.position[0] + obstacle.size[0] / 2,
+          obstacle.position[1] + obstacle.size[1] / 2,
+          obstacle.position[2] + obstacle.size[2] / 2
+        );
+        
+        if (
+          playerVector.x > obstacleMin.x && playerVector.x < obstacleMax.x &&
+          playerVector.y > obstacleMin.y && playerVector.y < obstacleMax.y &&
+          playerVector.z > obstacleMin.z && playerVector.z < obstacleMax.z
+        ) {
           collision = true;
           break;
         }
@@ -275,12 +369,14 @@ const GameScene = ({ level, onLevelComplete }) => {
   }, [playerPosition, gameOver, obstacles]);
 
   const handleShoot = () => {
-    if (gameOver || ammo <= 0) return;
+    if (gameOver) return;
 
-    const direction = new Vector3(0, 0, -1);
-    setBullets(prev => [...prev, { position: [...playerPosition], direction }]);
-    setAmmo(prev => prev - 1);
-    playSound('shoot');
+    if (fire()) {
+      fireBullet();
+      playSound('shoot');
+    } else {
+      playSound('empty');
+    }
   };
 
   const handlePlayerHit = () => {
@@ -306,7 +402,7 @@ const GameScene = ({ level, onLevelComplete }) => {
     if (powerup.type === POWERUPS.HEALTH) {
       setHealth(prev => Math.min(100, prev + POWERUPS.HEALTH.effect));
     } else {
-      setAmmo(prev => prev + POWERUPS.AMMO.effect);
+      addAmmo(currentWeapon.name, POWERUPS.AMMO.effect);
     }
     setPowerups(prev => prev.filter((_, i) => i !== index));
     playSound('powerup');
