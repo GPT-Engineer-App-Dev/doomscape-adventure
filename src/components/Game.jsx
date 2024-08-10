@@ -206,11 +206,14 @@ const GameScene = ({ level, onLevelComplete }) => {
 
   useEffect(() => {
     // Initialize level
-    setEnemies(Array(level * 2).fill().map((_, i) => ({
+    const enemyCount = Math.max(1, level * 2); // Ensure at least 1 enemy
+    const powerupCount = Math.max(1, level); // Ensure at least 1 powerup
+
+    setEnemies(Array(enemyCount).fill().map((_, i) => ({
       id: i,
       position: [Math.random() * 20 - 10, 0, Math.random() * 20 - 10]
     })));
-    setPowerups(Array(level).fill().map((_, i) => ({
+    setPowerups(Array(powerupCount).fill().map((_, i) => ({
       position: [Math.random() * 20 - 10, 0, Math.random() * 20 - 10],
       type: Math.random() > 0.5 ? POWERUPS.HEALTH : POWERUPS.AMMO
     })));
