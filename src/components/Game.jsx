@@ -397,7 +397,7 @@ const Game = () => {
       {gameState === 'menu' && (
         <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75 z-10">
           <div className="text-white text-center">
-            <h1 className="text-4xl mb-4">Doom-like 3D Game</h1>
+            <h1 className="text-4xl mb-4">Dooooom</h1>
             <button
               className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
               onClick={startGame}
