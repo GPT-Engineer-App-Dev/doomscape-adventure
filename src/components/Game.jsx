@@ -8,6 +8,11 @@ const WEAPONS = {
   SHOTGUN: { name: 'Shotgun', damage: 25, ammo: 20, fireRate: 2 },
 };
 
+const POWERUPS = {
+  HEALTH: { name: 'Health', effect: 50 },
+  AMMO: { name: 'Ammo', effect: 20 },
+};
+
 const Player = ({ position, health, weapon, onShoot }) => {
   const ref = useRef();
   const { camera } = useThree();
@@ -36,13 +41,18 @@ const Player = ({ position, health, weapon, onShoot }) => {
   );
 };
 
-const Enemy = ({ position, onHit, onDie }) => {
+const Enemy = ({ position, onHit, onDie, playerPosition }) => {
   const ref = useRef();
   const [health, setHealth] = useState(100);
 
   useFrame(() => {
-    if (Math.random() < 0.005) {
-      onHit();
+    if (ref.current) {
+      const direction = new Vector3(...playerPosition).sub(ref.current.position).normalize();
+      ref.current.position.add(direction.multiplyScalar(0.03));
+      
+      if (Math.random() < 0.005) {
+        onHit();
+      }
     }
   });
 
@@ -84,6 +94,23 @@ const Bullet = ({ position, direction, onHit }) => {
   );
 };
 
+const Powerup = ({ position, type, onCollect }) => {
+  const ref = useRef();
+
+  useFrame(() => {
+    if (ref.current) {
+      ref.current.rotation.y += 0.05;
+    }
+  });
+
+  return (
+    <mesh ref={ref} position={position} onClick={onCollect}>
+      <boxGeometry args={[0.5, 0.5, 0.5]} />
+      <meshStandardMaterial color={type === POWERUPS.HEALTH ? "red" : "blue"} />
+    </mesh>
+  );
+};
+
 const Obstacle = ({ position, size }) => {
   return (
     <Box position={position} args={size}>
@@ -102,7 +129,7 @@ const Floor = () => {
   );
 };
 
-const HUD = ({ health, weapon, ammo }) => {
+const HUD = ({ health, weapon, ammo, level }) => {
   return (
     <>
       <Text position={[-0.8, 0.4, -1]} color="white" fontSize={0.05} anchorX="left" anchorY="middle">
@@ -114,11 +141,14 @@ const HUD = ({ health, weapon, ammo }) => {
       <Text position={[-0.8, 0.2, -1]} color="white" fontSize={0.05} anchorX="left" anchorY="middle">
         Ammo: {ammo}
       </Text>
+      <Text position={[-0.8, 0.1, -1]} color="white" fontSize={0.05} anchorX="left" anchorY="middle">
+        Level: {level}
+      </Text>
     </>
   );
 };
 
-const Minimap = ({ playerPosition, enemies, obstacles }) => {
+const Minimap = ({ playerPosition, enemies, obstacles, powerups }) => {
   const scale = 0.02;
   return (
     <group position={[0.7, 0.4, -1]} scale={[scale, scale, 1]}>
@@ -142,21 +172,24 @@ const Minimap = ({ playerPosition, enemies, obstacles }) => {
           <meshBasicMaterial color="gray" />
         </mesh>
       ))}
+      {powerups.map((powerup, index) => (
+        <mesh key={index} position={[powerup.position[0], powerup.position[2], 0]}>
+          <circleGeometry args={[0.5, 32]} />
+          <meshBasicMaterial color={powerup.type === POWERUPS.HEALTH ? "green" : "yellow"} />
+        </mesh>
+      ))}
     </group>
   );
 };
 
-const GameScene = () => {
+const GameScene = ({ level, onLevelComplete }) => {
   const [playerPosition, setPlayerPosition] = useState([0, 0, 10]);
   const [health, setHealth] = useState(100);
   const [weapon, setWeapon] = useState(WEAPONS.PISTOL);
   const [ammo, setAmmo] = useState(WEAPONS.PISTOL.ammo);
   const [bullets, setBullets] = useState([]);
-  const [enemies, setEnemies] = useState([
-    { id: 1, position: [5, 0, 0] },
-    { id: 2, position: [-5, 0, -5] },
-    { id: 3, position: [0, 0, -10] },
-  ]);
+  const [enemies, setEnemies] = useState([]);
+  const [powerups, setPowerups] = useState([]);
   const [gameOver, setGameOver] = useState(false);
 
   const obstacles = useMemo(() => [
@@ -170,6 +203,18 @@ const GameScene = () => {
   ], []);
 
   const raycaster = useMemo(() => new Raycaster(), []);
+
+  useEffect(() => {
+    // Initialize level
+    setEnemies(Array(level * 2).fill().map((_, i) => ({
+      id: i,
+      position: [Math.random() * 20 - 10, 0, Math.random() * 20 - 10]
+    })));
+    setPowerups(Array(level).fill().map((_, i) => ({
+      position: [Math.random() * 20 - 10, 0, Math.random() * 20 - 10],
+      type: Math.random() > 0.5 ? POWERUPS.HEALTH : POWERUPS.AMMO
+    })));
+  }, [level]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -232,6 +277,7 @@ const GameScene = () => {
     const direction = new Vector3(0, 0, -1);
     setBullets(prev => [...prev, { position: [...playerPosition], direction }]);
     setAmmo(prev => prev - 1);
+    playSound('shoot');
   };
 
   const handlePlayerHit = () => {
@@ -239,6 +285,9 @@ const GameScene = () => {
       const newHealth = Math.max(0, prev - 10);
       if (newHealth === 0) {
         setGameOver(true);
+        playSound('gameover');
+      } else {
+        playSound('hit');
       }
       return newHealth;
     });
@@ -246,6 +295,18 @@ const GameScene = () => {
 
   const handleEnemyDie = (id) => {
     setEnemies(prev => prev.filter(enemy => enemy.id !== id));
+    playSound('enemyDie');
+  };
+
+  const handlePowerupCollect = (index) => {
+    const powerup = powerups[index];
+    if (powerup.type === POWERUPS.HEALTH) {
+      setHealth(prev => Math.min(100, prev + POWERUPS.HEALTH.effect));
+    } else {
+      setAmmo(prev => prev + POWERUPS.AMMO.effect);
+    }
+    setPowerups(prev => prev.filter((_, i) => i !== index));
+    playSound('powerup');
   };
 
   const restartGame = () => {
@@ -254,12 +315,13 @@ const GameScene = () => {
     setWeapon(WEAPONS.PISTOL);
     setAmmo(WEAPONS.PISTOL.ammo);
     setBullets([]);
-    setEnemies([
-      { id: 1, position: [5, 0, 0] },
-      { id: 2, position: [-5, 0, -5] },
-      { id: 3, position: [0, 0, -10] },
-    ]);
     setGameOver(false);
+    onLevelComplete();
+  };
+
+  const playSound = (soundName) => {
+    // Implement sound playing logic here
+    console.log(`Playing sound: ${soundName}`);
   };
 
   useFrame(() => {
@@ -277,6 +339,7 @@ const GameScene = () => {
 
     if (enemies.length === 0) {
       setGameOver(true);
+      onLevelComplete();
     }
   });
 
@@ -288,7 +351,7 @@ const GameScene = () => {
       <Player position={playerPosition} health={health} weapon={weapon} onShoot={handleShoot} />
       <Floor />
       {enemies.map((enemy) => (
-        <Enemy key={enemy.id} position={enemy.position} onHit={handlePlayerHit} onDie={() => handleEnemyDie(enemy.id)} />
+        <Enemy key={enemy.id} position={enemy.position} onHit={handlePlayerHit} onDie={() => handleEnemyDie(enemy.id)} playerPosition={playerPosition} />
       ))}
       {bullets.map((bullet, index) => (
         <Bullet key={index} position={bullet.position} direction={bullet.direction} onHit={() => {}} />
@@ -296,14 +359,17 @@ const GameScene = () => {
       {obstacles.map((obstacle, index) => (
         <Obstacle key={index} position={obstacle.position} size={obstacle.size} />
       ))}
-      <HUD health={health} weapon={weapon} ammo={ammo} />
-      <Minimap playerPosition={playerPosition} enemies={enemies} obstacles={obstacles} />
+      {powerups.map((powerup, index) => (
+        <Powerup key={index} position={powerup.position} type={powerup.type} onCollect={() => handlePowerupCollect(index)} />
+      ))}
+      <HUD health={health} weapon={weapon} ammo={ammo} level={level} />
+      <Minimap playerPosition={playerPosition} enemies={enemies} obstacles={obstacles} powerups={powerups} />
       <OrbitControls />
       {gameOver && (
         <Text position={[0, 0, -5]} color="white" fontSize={0.5} anchorX="center" anchorY="middle">
-          {enemies.length === 0 ? "You Win!" : "Game Over"}
+          {enemies.length === 0 ? "Level Complete!" : "Game Over"}
           {"\n"}
-          Press 'R' to restart
+          Press 'R' to {enemies.length === 0 ? "continue" : "restart"}
         </Text>
       )}
     </>
@@ -311,10 +377,35 @@ const GameScene = () => {
 };
 
 const Game = () => {
+  const [gameState, setGameState] = useState('menu'); // 'menu', 'playing', 'gameOver'
+  const [level, setLevel] = useState(1);
+
+  const startGame = () => {
+    setGameState('playing');
+    setLevel(1);
+  };
+
+  const handleLevelComplete = () => {
+    setLevel(prev => prev + 1);
+  };
+
   return (
     <div className="w-full h-screen">
+      {gameState === 'menu' && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75 z-10">
+          <div className="text-white text-center">
+            <h1 className="text-4xl mb-4">Doom-like 3D Game</h1>
+            <button
+              className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
+              onClick={startGame}
+            >
+              Start Game
+            </button>
+          </div>
+        </div>
+      )}
       <Canvas>
-        <GameScene />
+        <GameScene level={level} onLevelComplete={handleLevelComplete} />
       </Canvas>
     </div>
   );
